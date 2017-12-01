@@ -1,14 +1,28 @@
 #include "discretize.h"
+#include <iostream>
+#include <math.h>
 #include <stdexcept>
 #include <stdlib.h>
-#include <math.h>
-#include <iostream>
 #include <moab/CartVect.hpp>
 #include <moab/Range.hpp>
+
+#define CHECKERR(err) \
+  if((err) != moab::MB_SUCCESS){ \
+    std::cerr << "Error on line " << __LINE__ << "of discretize.cpp" \
+              << std::endl; \
+    return err;}
+
+#define CHECKERR_HERE(err) \
+  if((err) != moag::MB_SUCCESS) \
+    std::cout << "Error on line " << __LINE__ << "of discretize.cpp" \
+              << std::endl;
 
 using moab::CartVect;
 using moab::Core;
 using moab::GeomTopoTool;
+using moab::ErrorCode;
+using moab::EntityHandle;
+using moab::GeomQueryTool;
 
 float VOL_FRAC_TOLERANCE = 1e-10;
 moab::Interface* MBI;
@@ -17,15 +31,17 @@ GeomQueryTool* GQT;
 
 std::vector<std::vector<double> > discretize_geom(
     std::vector<std::vector<double> > mesh,
-    // std::vector<EntityHandle> vol_handles,
     const char* filename,
-    int num_rays = 10,
-    bool grid = false) {
+    int num_rays,
+    bool grid) {
 
   // This will store the information of the individual row and how the rays
   // are to be fired.
+  ErrorCode rval;
   std::vector<EntityHandle> vol_handles;
-  load_geometry(filename, &vol_handles);
+  rval = load_geometry(filename, &vol_handles);
+  CHECKERR_HERE(rval);
+  // This holds information about this individual row.
   struct mesh_row row;
   row.num_rays = num_rays;
   row.grid = grid;
@@ -35,12 +51,18 @@ std::vector<std::vector<double> > discretize_geom(
 
   // Initialize this here to avoid creating it multiple times during loops.
   std::vector<double> zeros(2,0.0);
+  // This is needed for the function get_idx, in order to determine the
+  // identities of the elements in the current row. It is also used often to
+  // help with separating the work between cores, as it contains the number of
+  // volume elements in each direction.
+  int sizes[] = {mesh[0].size() - 1, mesh[1].size() - 1,
+                  mesh[2].size() - 1};
   // This will be the end result.
   std::vector<std::vector<double> > result;
   // This stores the intermediate totals.
   std::vector<std::map<int, std::vector<double> > > row_totals;
   // Define the size now to use [] assignment.
-  row_totals.resize((mesh[0].size()-1)*(mesh[1].size()-1)*(mesh[2].size()-1));
+  row_totals.resize(sizes[0]*sizes[1]*sizes[2]);
 
   // These for loops visit each individual row.
   for (int d1 = 0; d1 < 3; d1++) {
@@ -59,7 +81,7 @@ std::vector<std::vector<double> > discretize_geom(
       for (int j = 0; j < mesh[d2].size() - 1; j++) {
         row.d2div1 = mesh[d2][j];
         row.d2div2 = mesh[d2][j+1];
-        int sizes[] = {mesh[0].size() - 1, mesh[1].size() - 1, mesh[2].size() - 1};
+        // int sizes[] = {mesh[0].size() - 1, mesh[1].size() - 1, mesh[2].size() - 1};
         std::vector<int> idx = get_idx(sizes, i, j, row.d3);
 
         // The rays are fired and totals collected here.
@@ -105,11 +127,12 @@ std::vector<std::vector<double> > discretize_geom(
 }
 
 std::vector<std::map<int, std::vector<double> > > fireRays(
-    mesh_row &row,
-    std::vector<EntityHandle> vol_handles) {
+    mesh_row &row, std::vector<EntityHandle> vol_handles) {
 
   std::vector<std::map<int, std::vector<double> > > row_totals;
+  // The difference between each pair of divisions
   std::vector<double> width;
+  ErrorCode rval;
   for (int i = 0; i < row.d3divs.size() - 1; i++) {
     width.push_back(row.d3divs[i+1] - row.d3divs[i]);
   }
@@ -138,10 +161,12 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
     if (!result)
       eh = find_volume(vol_handles, pt, dir);
 
-    dag_ray_follow(eh, pt, dir, 0.0, &num_intersections,
-                   &surfs, &distances, &volumes, buf);
+    rval = dag_ray_follow(eh, pt, dir, 0.0, &num_intersections,
+                          &surfs, &distances, &volumes, buf);
+    CHECKERR_HERE(rval);
 
     std::vector<double> zeros(2,0.0);
+    // This holds the numbers to add to the totals.
     double value;
     // Keep track of at which volume element we're currently looking.
     int count = 0;
@@ -155,13 +180,14 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
       // width, we calculate the value and we move to the next width, shortening
       // the distance.
       while (distances[intersection] >= curr_width) {
-        value = curr_width/width[count];
         std::map<int, std::vector<double> >::iterator it =
             row_totals[count].find(eh);
         // If the current cell isn't in the totals yet, add it.
         if (it == row_totals[count].end()){
           row_totals[count].insert(it, std::make_pair(eh, zeros));
         }
+
+        value = curr_width/width[count];
         row_totals[count][eh][0] += value;
         row_totals[count][eh][1] += value*value;
         distances[intersection] -= curr_width;
@@ -183,7 +209,6 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
       if (distances[intersection] < curr_width &&
           distances[intersection] > VOL_FRAC_TOLERANCE &&
           !complete) {
-        value = distances[intersection]/curr_width;
         std::map<int, std::vector<double> >::iterator it =
             row_totals[count].find(eh);
 
@@ -191,12 +216,18 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
         if (it == row_totals[count].end()){
           row_totals[count].insert(it, std::make_pair(eh, zeros));
         }
+        value = distances[intersection]/width[count];
         row_totals[count][eh][0] += value;
         row_totals[count][eh][1] += value*value;
         curr_width -= distances[intersection];
       }
-      eh = volumes[intersection];
-      intersection++;
+      if (intersection < num_intersections) {
+        eh = volumes[intersection];
+        intersection++;
+      } else {
+        complete = true;
+        break;
+      }
     }
     delete buf;
   }
@@ -204,13 +235,14 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
 }
 
 void startPoints(mesh_row &row, int iter) {
+  // The dimensions of the current row.
   double dist_d1 = row.d1div2 - row.d1div1;
   double dist_d2 = row.d2div2 - row.d2div1;
   if (row.grid) {
     int points = sqrt(row.num_rays);
-    //Iterate slowly from 1 to points once.
+    // Iterate slowly from 1 to points once.
     int iter_d1 = iter/points + 1;
-    //Iterate from 1 to points, repeat points times.
+    // Iterate from 1 to points, repeat points times.
     int iter_d2 = iter%points + 1;
 
     row.start_point_d1 = row.d1div1 + dist_d1/(points + 1)*iter_d1;
@@ -225,16 +257,19 @@ void startPoints(mesh_row &row, int iter) {
 
 EntityHandle find_volume(std::vector<EntityHandle> vol_handles,
                          vec3 pt, vec3 dir) {
-  int result;
+  int result = 0;
+  ErrorCode rval;
 
   // Check each volume in the list. This is why it can take so long.
   for (int i = 0; i < vol_handles.size(); i++) {
     void* ptr;
-    GQT->point_in_volume(vol_handles[i], pt, result, dir,
+    rval = GQT->point_in_volume(vol_handles[i], pt, result, dir,
         static_cast<const GeomQueryTool::RayHistory*>(ptr));
+    CHECKERR_HERE(rval);
     if (result)
       return vol_handles[i];
   }
+  std::cerr << "(" << pt[0] << ", " << pt[1] <<", "<< pt[2] << ")" << std::endl;
   throw std::runtime_error("It appears that this point is not in any volume.");
 }
 
@@ -244,26 +279,23 @@ std::vector<int> get_idx(int sizes[], int d1, int d2, int d3) {
   // which variable depends on d3.
   if (d3 == 0){
     for (int i = 0; i < sizes[d3]; i++) {
-      idx.push_back(i + sizes[0]*d1 + sizes[0]*sizes[1]*d2);
+      idx.push_back(d2 + sizes[2]*d1 + sizes[1]*sizes[2]*i);
     }
   }
   else if (d3 == 1){
     for (int i = 0; i < sizes[d3]; i++) {
-      idx.push_back(d2 + sizes[0]*i + sizes[0]*sizes[1]*d1);
+      idx.push_back(d1 + sizes[2]*i + sizes[1]*sizes[2]*d2);
     }
   }
   else if (d3 == 2){
     for (int i = 0; i < sizes[d3]; i++) {
-      idx.push_back(d1 + sizes[0]*d2 + sizes[0]*sizes[1]*i);
+      idx.push_back(i + sizes[2]*d2 + sizes[1]*sizes[2]*d1);
     }
   }
   return idx;
 }
 
 // Dagmc bridge functions
-
-#define CHECKERR(err) \
-    if((err) != moab::MB_SUCCESS) return err;
 
 ErrorCode dag_ray_follow(EntityHandle firstvol, vec3 ray_start, vec3 ray_dir,
                          double distance_limit, int* num_intersections,
@@ -324,11 +356,13 @@ ErrorCode load_geometry(const char* filename,
 
   int num_vols = GQT->gttool()->num_ents_of_dim(3);
 
-  moab::Range vols;  
+  moab::Range vols;
   err = GQT->gttool()->get_gsets_by_dimension(3, vols);
+  CHECKERR(err);
   vol_handles->resize(num_vols);
   int i = 0;
   for (moab::Range::iterator it = vols.begin(); it != vols.end(); ++it) {
     vol_handles->at(i++) = *it;
   }
+  return err;
 }

@@ -1,17 +1,12 @@
 #ifndef DISCRETIZE_GEOM_H
 #define DISCRETIZE_GEOM_H
 
-#include <vector>
 #include <map>
-#include <DagMC.hpp>
-#include <moab/Interface.hpp>
+#include <vector>
 #include <moab/GeomQueryTool.hpp>
 #include <moab/GeomTopoTool.hpp>
+#include <moab/Interface.hpp>
 #include <moab/Types.hpp>
-
-using moab::ErrorCode;
-using moab::EntityHandle;
-using moab::GeomQueryTool;
 
 // The maxiumum volume fraction to be considered valid
 
@@ -19,22 +14,27 @@ using moab::GeomQueryTool;
 class ray_buffers {
 
 public:
-  GeomQueryTool::RayHistory history;
-  std::vector<EntityHandle> surfs;
+  moab::GeomQueryTool::RayHistory history;
+  std::vector<moab::EntityHandle> surfs;
   std::vector<double> dists;
-  std::vector<EntityHandle> vols;
+  std::vector<moab::EntityHandle> vols;
 
 };
 
 typedef double vec3[3];
 
-ErrorCode dag_pt_in_vol(EntityHandle vol, vec3 pt, int* result, vec3 dir,
-                         const void* history);
+moab::ErrorCode dag_pt_in_vol(moab::EntityHandle vol, vec3 pt, int* result,
+                              vec3 dir, const void* history);
 
-ErrorCode dag_ray_follow(EntityHandle firstvol, vec3 ray_start, vec3 ray_dir,
-                          double distance_limit, int* num_intersections,
-                          EntityHandle** surfs, double** distances,
-                          EntityHandle** volumes, ray_buffers* data_buffers);
+moab::ErrorCode dag_ray_follow(moab::EntityHandle firstvol,
+                               vec3 ray_start,
+                               vec3 ray_dir,
+                               double distance_limit,
+                               int* num_intersections,
+                               moab::EntityHandle** surfs,
+                               double** distances,
+                               moab::EntityHandle** volumes,
+                               ray_buffers* data_buffers);
 // End of functions from dagmc_bridge
 
 //Keep together those things which need to be passed to many different functions
@@ -93,7 +93,7 @@ std::vector<std::vector<double> > discretize_geom(
 */
 std::vector<std::map<int, std::vector<double> > > fireRays(
     mesh_row &row,
-    std::vector<EntityHandle> vol_handles_ids);
+    std::vector<moab::EntityHandle> vol_handles_ids);
 
 /*
  * This function determines the starting coordinates for the next ray. It is
@@ -124,7 +124,7 @@ void startPoints(mesh_row &row, int iter);
  * Returns:
  *    eh:              The entity handle for the desired volume.
 */
-EntityHandle find_volume(std::vector<EntityHandle> vol_handles_ids, vec3 pt, vec3 dir);
+moab::EntityHandle find_volume(std::vector<EntityHandle> vol_handles_ids, vec3 pt, vec3 dir);
 
 /*
  * This function determines the ids of the volume elements in the current row.
@@ -142,7 +142,7 @@ EntityHandle find_volume(std::vector<EntityHandle> vol_handles_ids, vec3 pt, vec
 std::vector<int> get_idx(int sizes[], int d1,
                          int d2, int d3);
 
-ErrorCode load_geometry(const char* filename,
+moab::ErrorCode load_geometry(const char* filename,
                         std::vector<EntityHandle>* vol_handles);
 
 #endif // DISCRETIZE_GEOM_H
