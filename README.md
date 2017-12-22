@@ -30,15 +30,15 @@ mkdir build
 
 cd build
 
-../moab/configure --enable-shared --enable-dagmc --with-hdf5=<PATH TO HDF5> --prefix=<PATH TO MOAB>
+../moab/configure --enable-shared --enable-dagmc --with-hdf5={PATH TO HDF5} --prefix={PATH TO MOAB}
 
 make
 
 make install
 
-export LD_LIBRARY_PATH=<PATH TO MOAB>:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH={PATH TO MOAB}:$LD_LIBRARY_PATH
 
-export LIBRARY_PATH=<PATH TO MOAB>:$LIBRARY_PATH
+export LIBRARY_PATH={PATH TO MOAB}:$LIBRARY_PATH
 
 
 
@@ -50,7 +50,7 @@ cd 759-proj
 
 mkdir build
 
-cmake ../ -DMOAB_DIR=<PATH TO MOAB>/lib/cmake/MOAB/
+cmake ../ -DMOAB_DIR={PATH TO MOAB}/lib/cmake/MOAB/
 
 make
 
