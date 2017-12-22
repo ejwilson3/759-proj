@@ -1,0 +1,70 @@
+DG: fireRays
+    GQT::point_in_volume
+        point_in_box
+            GTT::get_bounding_coords
+                get_obb
+                    get_root
+                        (end)
+                    obbTree::box
+        GTT::get_root
+            (end)
+        GQT_IntRegCtxt (Class)
+            OBBTT::
+        GTT::obb_tree
+            (end)
+        OBTT::IntersectSearchWindow (class)
+        GTT::obb_tree.ray_intersect_sets
+        boundary_case
+            MBI::get_connectivity
+            MBI::get_coords
+            MBI::get_sense
+    DG: find_volume
+        GQT::point_in_volume
+            ...
+        GQT::RayHistory
+    DG: dag_ray_follow (don't use surfs)
+        // starts in firstvol.
+        // creates a vector of rays
+        GQT::ray_fire -> takes a volume, a point, a direction, a distance limit (I don't use this), a ray orientation (I don't use this) and some stats (not these either); returns the next surface, the distance thereto, messes wit history.
+            // define phony distance limit
+            // Uses some global values as lists, but clears them every time?
+                // That's literally the only time in moab those are ever used; I guess that saves space or time?
+            GTT::get_root -> Takes the entity handle and returns root of obb_tree
+                *I PROBABLY NEED THIS// return rootSets[index]
+            // sets neg_ray_len to -0.001
+            // sets nonneg_ray_len to 0.001
+            GQT_IntRegCtxt -> new class object. Gives it the GTT OBBtree, the starting point, the direction, the precision, the root, the starting volume the senseTag(class value from GTT), the ray_orientation(not used), and any history, which just populate the starting values.
+                GTT::obb_tree -> returns the class value, which is an Oriented Box, it looks like. Might be a tree itself at this point.
+            OBTT::IntersectSearchWindow -> pair; non-neg ray_len, neg ray_len
+!!key       GTT::obb_tree.ray_intersect_sets -> takes root, tolerance, point, dir, window, GQT_IntRegCtxt (?), and stats. Returns distances, sets, and facets.
+
+!! I think that the OBBTree has the triangles I'll need to check against. Is there a way to get these directly into the GPU?
+
+                RayIntersectSets op -> new class object; takes OBTT instance, point, dir, tolerance, window, test_count(?), IntRegCtxt
+                preorder_traverse -> takes root, RayIntersectSets, stats.
+                    // add data to "the stack"
+                    // while the stack not empty
+                        // pop data off the stack
+                        // update statistics (Does this matter for me?)
+                        RayIntersectSets.visit -> takes node, depth, b descend. alters descend if it doesn't hit that node.
+                            OBBT->box -> get_tag_data; finds that OBB.
+                            Obox.intersect_ray -> Checks if it intersects the box. takes ray_origin, ray_direction, tolorance, window, returns bool.
+                                // Calculates (distance to) center, dot product of center w/ direction, square of center magnitude - square of said dot product, and square of distance to farthest extent of OBB.
+                                // If square to line > square to extent, false.
+                                // If abs(dist_s) < tol & tol^2 > extent^2 (how?), false
+
+                                // calculate shortest diag; if dist_sq <, true.
+
+// Holy cow the storage is going to be awful. (see mem_reqs.txt)
+                                
+                                // get axis transpose, multiply by distance and direction.
+                                // get box widths in parametric xyz dirs
+                                // test if origin is in box; if yes, true.
+                                // finally, test against the six planes.
+                IntRegCtxt::get_intersections
+                IntRegCtxt::get_sets
+                IntRegCtxt::get_facets
+            MBI::get_parent_meshsets
+            point_in_volume
+                ...
+        GQT::gttool.next_vol

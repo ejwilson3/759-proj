@@ -124,7 +124,7 @@ void startPoints(mesh_row &row, int iter);
  * Returns:
  *    eh:              The entity handle for the desired volume.
 */
-moab::EntityHandle find_volume(std::vector<EntityHandle> vol_handles_ids, vec3 pt, vec3 dir);
+moab::EntityHandle find_volume(std::vector<moab::EntityHandle> vol_handles_ids, vec3 pt, vec3 dir);
 
 /*
  * This function determines the ids of the volume elements in the current row.
@@ -143,6 +143,62 @@ std::vector<int> get_idx(int sizes[], int d1,
                          int d2, int d3);
 
 moab::ErrorCode load_geometry(const char* filename,
-                        std::vector<EntityHandle>* vol_handles);
+                        std::vector<moab::EntityHandle>* vol_handles);
 
+
+  /**\brief find the next surface crossing from a given point in a given direction
+   *
+   * This is the primary method to enable ray tracing through a geometry.
+   * Given a volume and a ray, it determines the distance to the nearest intersection
+   * with a bounding surface of that volume and returns that distance and the 
+   * EntityHandle indicating on which surface that intersection occurs.
+   * The caller can compute the location of the intersection by adding the
+   * distance to the ray.
+   *
+   * When a series of calls to this function are made along the same ray (e.g. for
+   * the purpose of tracking a ray through several volumes), the optional history
+   * argument should be given.  The history prevents previously intersected facets
+   * from being intersected again.  A single history should be used as long as a
+   * ray is proceeding forward without changing direction.  This situation is
+   * sometimes referred to as "streaming."
+   *
+   * If a ray changes direction at an intersection site, the caller should call
+   * reset_to_last_intersection() on the history object before the next ray fire.
+   *
+   * @param volume The volume at which to fire the ray
+   * @param ray_start An array of x,y,z coordinates from which to start the ray.
+   * @param ray_dir An array of x,y,z coordinates indicating the direction of the ray.
+   *                Must be of unit length.
+   * @param next_surf Output parameter indicating the next surface intersected by the ray.
+   *                If no intersection is found, will be set to 0.
+   * @param next_surf_dist Output parameter indicating distance to next_surf.  If next_surf is
+   *                0, this value is undefined and should not be used.
+   * @param history Optional RayHistory object.  If provided, the facets in the history are
+   *                assumed to not intersect with the given ray.  The facet intersected
+   *                by this query will also be added to the history.
+   * @param dist_limit Optional distance limit.  If provided and > 0, no intersections at a
+   *                distance further than this value will be returned.
+   * @param ray_orientation Optional ray orientation. If provided determines intersections
+   *                along the normal provided, e.g. if -1 allows intersections back along the
+   *                the ray direction, Default is 1, i.e. exit intersections
+   * @param stats Optional TrvStats object used to measure performance of underlying OBB
+   *              ray-firing query.  See OrientedBoxTreeTool.hpp for details.
+   *
+   */
+   /*
+  moab::ErrorCode moab::GeomQueryTool2::ray_fire(
+      const moab::EntityHandle volume,
+                     const double ray_start[3], const double ray_dir[3],
+                     moab::EntityHandle& next_surf, double& next_surf_dist,
+                     RayHistory* history, double dist_limit,
+                     int ray_orientation,
+                     moab::OrientedBoxTreeTool::TrvStats* stats);
+                     */
+      /*
+                     const double ray_start[3], const double ray_dir[3],
+                     moab::EntityHandle& next_surf, double& next_surf_dist,
+                     RayHistory* history = NULL, double dist_limit = 0,
+                     int ray_orientation = 1,
+                     moab::OrientedBoxTreeTool::TrvStats* stats = NULL );
+                     */
 #endif // DISCRETIZE_GEOM_H

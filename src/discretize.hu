@@ -1,0 +1,2 @@
+std::vector<double> cuda_rayfire(moab::Instance, moab::GeomTopoTool, mesh_row,
+                                 moab::GeomQueryTool, std::vector<EntityHandle>);

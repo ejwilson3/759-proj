@@ -1,4 +1,5 @@
 #include "discretize.h"
+#include "discretize.hu"
 #include <iostream>
 #include <math.h>
 #include <stdexcept>
@@ -13,7 +14,7 @@
     return err;}
 
 #define CHECKERR_HERE(err) \
-  if((err) != moag::MB_SUCCESS) \
+  if((err) != moab::MB_SUCCESS) \
     std::cout << "Error on line " << __LINE__ << "of discretize.cpp" \
               << std::endl;
 
@@ -126,45 +127,39 @@ std::vector<std::vector<double> > discretize_geom(
   return result;
 }
 
-std::vector<std::map<int, std::vector<double> > > fireRays(
-    mesh_row &row, std::vector<EntityHandle> vol_handles) {
+std::vector<std::map<int, std::vector<double> > > fireRays(mesh_row &row,
+    std::vector<EntityHandle> vol_handles) {
 
-  std::vector<std::map<int, std::vector<double> > > row_totals;
-  // The difference between each pair of divisions
-  std::vector<double> width;
-  ErrorCode rval;
-  for (int i = 0; i < row.d3divs.size() - 1; i++) {
-    width.push_back(row.d3divs[i+1] - row.d3divs[i]);
-  }
-  row_totals.resize(width.size());
-
-  // These variables are needed for point_in_volume and dag_ray_follow.
   vec3 pt;
   pt[row.d3] = row.d3divs[0];
   int result = 0;
   vec3 dir = {0};
   dir[row.d3] = 1;
   EntityHandle eh;
+  // This needs to come from the kernel; it doesn't.
   int num_intersections;
-  EntityHandle *surfs, *volumes;
-  double *distances;
+  // Same with this one.
+  EntityHandle *volumes;
+
+  // This vector would have to be huge. I don't think it would work to just 
+  // figure out the distances on the GPU; if I were to redo this, I would assume
+  // the calculations are also being done there. See comment at discretize.cu
+  // line 44. Not that the memory required isn't already large.
+  std::vector<double> holy_distances_batman = cuda_rayfire(MBI, GTT, GQT, row,
+                                                           vol_handles); 
 
   for (int i = 0; i < row.num_rays; i++) {
-    ray_buffers* buf = new ray_buffers;
+
     startPoints(row, i);
     pt[(row.d3+1)%3] = row.start_point_d1;
     pt[(row.d3+2)%3] = row.start_point_d2;
-    // If the next point starts in the same volume as the last one, calling this
-    // here can save calling find_volume, which gets expensive.
-    if (i != 0)
+    // If the next point starts in the same volume as the last one, calling
+    // this here can save calling find_volume, which gets expensive.
+    if (i != row.init)
       GQT->point_in_volume(eh, pt, result, dir);
-    if (!result)
+    if (!result){
       eh = find_volume(vol_handles, pt, dir);
-
-    rval = dag_ray_follow(eh, pt, dir, 0.0, &num_intersections,
-                          &surfs, &distances, &volumes, buf);
-    CHECKERR_HERE(rval);
-
+    }
     std::vector<double> zeros(2,0.0);
     // This holds the numbers to add to the totals.
     double value;
@@ -179,7 +174,7 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
       // while the distance to the next intersection is greater than the current
       // width, we calculate the value and we move to the next width, shortening
       // the distance.
-      while (distances[intersection] >= curr_width) {
+      while (distances[i*row.num_rays + intersection] >= curr_width) {
         std::map<int, std::vector<double> >::iterator it =
             row_totals[count].find(eh);
         // If the current cell isn't in the totals yet, add it.
@@ -190,7 +185,7 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
         value = curr_width/width[count];
         row_totals[count][eh][0] += value;
         row_totals[count][eh][1] += value*value;
-        distances[intersection] -= curr_width;
+        distances[i*row.num_rays + intersection] -= curr_width;
 
         // If there are more volume elements, move to the next one.
         if (width.size() - 1 > count) {
@@ -206,8 +201,8 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
       // If the distance to the next intersection is smaller than the distance
       // to the next element, move up to the intersection and move on to the
       // next 'distance'.
-      if (distances[intersection] < curr_width &&
-          distances[intersection] > VOL_FRAC_TOLERANCE &&
+      if (distances[i*row.num_rays + intersection] < curr_width &&
+          distances[i*row.num_rays + intersection] > VOL_FRAC_TOLERANCE &&
           !complete) {
         std::map<int, std::vector<double> >::iterator it =
             row_totals[count].find(eh);
@@ -216,12 +211,14 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
         if (it == row_totals[count].end()){
           row_totals[count].insert(it, std::make_pair(eh, zeros));
         }
-        value = distances[intersection]/width[count];
+        value = distances[i*row.num_rays + intersection]/width[count];
         row_totals[count][eh][0] += value;
         row_totals[count][eh][1] += value*value;
-        curr_width -= distances[intersection];
+        curr_width -= distances[i*row.num_rays + intersection];
       }
       if (intersection < num_intersections) {
+        // This would probably need to be volumes[i*row.num_rays + intersection]
+        // if I knew how to return it.
         eh = volumes[intersection];
         intersection++;
       } else {
@@ -229,7 +226,6 @@ std::vector<std::map<int, std::vector<double> > > fireRays(
         break;
       }
     }
-    delete buf;
   }
   return row_totals;
 }

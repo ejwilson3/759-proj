@@ -1,0 +1,69 @@
+Assume each thread can have 512 KB. 512000 bytes, 4.096e6 bits.
+Each double takes 8 bytes. Each CartVect takes 24 bytes. Each Matrix3 takes 72.
+Each OBB needs: CartVect*2, Matrix3, double
+Each OBB takes up at least 48 + 72 + 8 = 128 Bytes;
+With ONLY Oriented Bounding Boxes, to say nothing of other memory uses, you
+could only store 4000 OBBs
+
+With how I envision my program to work, each OBB requires not only 16 doubles
+(128 bytes) of gpu allocated memory, with double for the
+distance array (in the case of a perfectly balanced tree with two triangles per box), but it also requires
+another 2 doubles for each mesh discretization. so with just the allocated data,
+the most you could have would be ((512000 - 16)/136) = 3764 OBBs. That's
+probably actually a decent discretization (read: no discretization) for the
+geometry that would have that small of a number of OBBs, but most applications
+would require something more on the order of 100 discretizations in each
+direction. This isn't a huge change, as rays are fired only down one direction
+at a time and each takes up 16 bytes, but the number of potential OBBs shrinks
+again to 3752.
+This isn't even taking into account the triangles themselves, which would
+require another nine doubles each, and there would be _roughly_ as many of them
+as the number of bounding boxes (each of the leaf nodes in the tree probably
+contains at least two triangles, but there are about half as many leaf nodes as
+total nodes), you could estimate this by increasing the cost per box by another
+72 bytes. Now we're getting a maximum of ((512000 - 16)/208) = 2461 OBBs.
+Again, this is without taking into account the actual instructions within the
+Kernel, having no discretizations, assuming a perfectly balanced tree, and only
+having two triangles per bounding box (in reality it would be a bit better to
+have more triangles per box, but due to the tools at my disposal I can only
+measure the number of bounding boxes, leading to my assumptions on the least
+memory being the least number of triangles/box without having ridiculous boxes).
+And I never did actually figure out how the box references the triangle;
+that's probably another couple of bytes per box.
+
+Without significant changes (shifting to axis aligned bounding boxes or
+bounding spheres, splitting up geometry, using floating point precision, for
+example), this method would be of very limited use.  The simplest test file
+which I use for my MPI implementation (included for reference as
+1x1x1voxel.h5m, if you have a way to read it) has 7288 OBBs The simple test
+file found in PyNE, where the original discretize_geom implementation was born,
+(unitbox.h5m) has only 136 OBBs, but as it is merely a cube with another cube
+(1/4 the size) in its center, this is of little value. I would stick with the
+sequential implmentation, or my MPI implementation.
+
+Floating point precision would cut the memory requirements by half. Axis
+aligned boxes would lower it to 7 numbers per bounding box, bounding spheres
+to 5. If you used floating point bounding spheres, the memory requirements
+would be only 20 bytes per sphere! With the triangles only now requiring 36
+bytes each, or ~36 additional bytes per sphere, this would allow a much nicer
+9142 bounding entities. Better, but not good, and you sacrifice both precision and performance.
+
+I wonder: If you just had the leaves, and checked against each one of them,
+would it benefit you to fire over the GPU? Would change the complexity by
+N/log(N), but if you had enough SMs you might be able to get away with it, and
+it would lower the memory requirements. There would still be a limit, though;
+I'd say it would probably still be an improvement for those cases that would
+work, simply because if N was very high you couldn't run it anyways.
+In this case, using doubles, you would need 80 bytes per triangle, allowing a
+grand total of 6399 triangles, or twice that number for floating point.
+Probably not even enough to run my test file with good precision.
+
+
+When finishing up what I was going to do with the implementation, I realized
+that, unlike the CUDA implementations which we used in class, these threads
+would each need their own distances array. If there's not a way to copy memory
+from one thread at a time, we'd either need to copy a bunch more memory into
+the kernel to do all of the calculations there as well, or that array would
+take up about (num_OBBs*sizeof(OBB) + num_paritions*sizeof(partition))*num_rays,
+which is absolutely atrocious and would take up all of the memory if we even
+tried to have any benefit from the GPU.
